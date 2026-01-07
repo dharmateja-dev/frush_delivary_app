@@ -1,0 +1,146 @@
+{
+  "project_info": {
+    "project_number": "792020357769",
+    "firebase_url": "https://frush-29e51-default-rtdb.firebaseio.com",
+    "project_id": "frush-29e51",
+    "storage_bucket": "frush-29e51.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:792020357769:android:41916544a9b72397f32c58",
+        "android_client_info": {
+          "package_name": "com.sameats.customer.android"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "792020357769-o0e60os8c6hcapmrkdf9kapjvdvlpn1n.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sameats.customer.android",
+            "certificate_hash": "b6dcff58a9bbe4d7fe1e2fe05a2772a84da067ff"
+          }
+        },
+        {
+          "client_id": "792020357769-p3ij9ak7eipig7gnos811gt73qldgm7f.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sameats.customer.android",
+            "certificate_hash": "8efaab843722170a138154bafffcfcdc0946aadd"
+          }
+        },
+        {
+          "client_id": "792020357769-1ccggjqhqeotg8u3jqd9kvpab00i0vg3.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDU7Iki76J2BWOMj434raRkJVlvYIoLtWU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "792020357769-1ccggjqhqeotg8u3jqd9kvpab00i0vg3.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:792020357769:android:f7531e5e601c9fd7f32c58",
+        "android_client_info": {
+          "package_name": "com.sameats.driver.android"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "792020357769-4f5tu521jnus8hmidoav45khjb37hnt4.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sameats.driver.android",
+            "certificate_hash": "8efaab843722170a138154bafffcfcdc0946aadd"
+          }
+        },
+        {
+          "client_id": "792020357769-d44flcg5ahafch5sukddsg6nanbardmc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sameats.driver.android",
+            "certificate_hash": "b6dcff58a9bbe4d7fe1e2fe05a2772a84da067ff"
+          }
+        },
+        {
+          "client_id": "792020357769-1ccggjqhqeotg8u3jqd9kvpab00i0vg3.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDU7Iki76J2BWOMj434raRkJVlvYIoLtWU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "792020357769-1ccggjqhqeotg8u3jqd9kvpab00i0vg3.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:792020357769:android:a6059ca1962e7fa4f32c58",
+        "android_client_info": {
+          "package_name": "com.sameats.restaurant.android"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "792020357769-686mhinmb7kmongigs4pk5m8fucqpvau.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sameats.restaurant.android",
+            "certificate_hash": "b6dcff58a9bbe4d7fe1e2fe05a2772a84da067ff"
+          }
+        },
+        {
+          "client_id": "792020357769-kl5gcf6ba2pqsfutt0m8f41uujvp36lc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sameats.restaurant.android",
+            "certificate_hash": "8efaab843722170a138154bafffcfcdc0946aadd"
+          }
+        },
+        {
+          "client_id": "792020357769-1ccggjqhqeotg8u3jqd9kvpab00i0vg3.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDU7Iki76J2BWOMj434raRkJVlvYIoLtWU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "792020357769-1ccggjqhqeotg8u3jqd9kvpab00i0vg3.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
