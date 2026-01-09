@@ -111,6 +111,10 @@ class HomeController extends GetxController {
         });
       });
 
+      // Remove the order from ALL other drivers' orderRequestData
+      // This ensures the order notification is removed from all other delivery guys
+      await _removeOrderFromAllOtherDrivers(orderId!, driverId!);
+
       ShowToastDialog.closeLoader();
 
       await SendNotification.sendFcmMessage(
@@ -130,32 +134,67 @@ class HomeController extends GetxController {
     }
   }
 
+  /// Removes the order from all other drivers' orderRequestData lists
+  /// This is called after a driver accepts an order to ensure other drivers
+  /// no longer see this order in their pending requests
+  Future<void> _removeOrderFromAllOtherDrivers(
+      String orderId, String acceptingDriverId) async {
+    try {
+      // Query all drivers who have this order in their orderRequestData
+      final driversSnapshot = await FirebaseFirestore.instance
+          .collection(CollectionName.users)
+          .where('role', isEqualTo: Constant.userRoleDriver)
+          .where('orderRequestData', arrayContains: orderId)
+          .get();
+
+      // Create a batch to update all drivers at once
+      final batch = FirebaseFirestore.instance.batch();
+
+      for (var doc in driversSnapshot.docs) {
+        // Skip the driver who accepted the order (already updated in transaction)
+        if (doc.id == acceptingDriverId) continue;
+
+        batch.update(doc.reference, {
+          'orderRequestData': FieldValue.arrayRemove([orderId]),
+        });
+      }
+
+      // Commit all updates
+      await batch.commit();
+
+      print(
+          'Removed order $orderId from ${driversSnapshot.docs.length - 1} other drivers');
+    } catch (e) {
+      print('Error removing order from other drivers: $e');
+      // Don't throw - this is a cleanup operation, shouldn't block the main flow
+    }
+  }
 
   rejectOrder() async {
-  await AudioPlayerService.playSound(true);
+    await AudioPlayerService.playSound(true);
 
-  currentOrder.value.rejectedByDrivers ??= [];
-  currentOrder.value.rejectedByDrivers!.add(driverModel.value.id);
+    currentOrder.value.rejectedByDrivers ??= [];
+    currentOrder.value.rejectedByDrivers!.add(driverModel.value.id);
 
-  
-  currentOrder.value.status = Constant.orderPlaced; 
+    currentOrder.value.status = Constant.orderPlaced;
 
-  currentOrder.value.driverID = null;
-  currentOrder.value.driver = null;
+    currentOrder.value.driverID = null;
+    currentOrder.value.driver = null;
 
-  driverModel.value.orderRequestData?.remove(currentOrder.value.id);
-  driverModel.value.inProgressOrderID?.remove(currentOrder.value.id);
+    driverModel.value.orderRequestData?.remove(currentOrder.value.id);
+    driverModel.value.inProgressOrderID?.remove(currentOrder.value.id);
 
-  await FireStoreUtils.setOrder(currentOrder.value);
-  await FireStoreUtils.updateUser(driverModel.value);
+    await FireStoreUtils.setOrder(currentOrder.value);
+    await FireStoreUtils.updateUser(driverModel.value);
 
-  currentOrder.value = OrderModel();
-  clearMap();
+    currentOrder.value = OrderModel();
+    clearMap();
 
-  if (Constant.singleOrderReceive == false) {
-    Get.back();
+    if (Constant.singleOrderReceive == false) {
+      Get.back();
+    }
   }
-}
+
   clearMap() async {
     await AudioPlayerService.playSound(false);
     if (Constant.selectedMapType != 'osm') {
@@ -169,28 +208,83 @@ class HomeController extends GetxController {
     update();
   }
 
- getCurrentOrder() async {
-  if (currentOrder.value.id != null &&
-      !driverModel.value.orderRequestData!.contains(currentOrder.value.id) &&
-      !driverModel.value.inProgressOrderID!.contains(currentOrder.value.id)) {
-    currentOrder.value = OrderModel();
-    await clearMap();
-    await AudioPlayerService.playSound(false);
-  } else if (Constant.singleOrderReceive == true) {
-    if (driverModel.value.inProgressOrderID != null &&
-        driverModel.value.inProgressOrderID!.isNotEmpty) {
+  getCurrentOrder() async {
+    if (currentOrder.value.id != null &&
+        !driverModel.value.orderRequestData!.contains(currentOrder.value.id) &&
+        !driverModel.value.inProgressOrderID!.contains(currentOrder.value.id)) {
+      currentOrder.value = OrderModel();
+      await clearMap();
+      await AudioPlayerService.playSound(false);
+    } else if (Constant.singleOrderReceive == true) {
+      if (driverModel.value.inProgressOrderID != null &&
+          driverModel.value.inProgressOrderID!.isNotEmpty) {
+        FireStoreUtils.fireStore
+            .collection(CollectionName.restaurantOrders)
+            .where('status', whereNotIn: [
+              Constant.orderCancelled,
+              Constant.driverRejected,
+              "Order Completed" // Keep this only for in-progress orders
+            ])
+            .where('id',
+                isEqualTo:
+                    driverModel.value.inProgressOrderID!.first.toString())
+            .where('driverID', isEqualTo: driverModel.value.id)
+            .snapshots()
+            .listen(
+              (event) async {
+                if (event.docs.isNotEmpty) {
+                  currentOrder.value =
+                      OrderModel.fromJson(event.docs.first.data());
+                  changeData();
+                } else {
+                  currentOrder.value = OrderModel();
+                  await AudioPlayerService.playSound(false);
+                }
+              },
+            );
+      } else if (driverModel.value.orderRequestData != null &&
+          driverModel.value.orderRequestData!.isNotEmpty) {
+        FireStoreUtils.fireStore
+            .collection(CollectionName.restaurantOrders)
+            .where('status', whereNotIn: [
+              Constant.orderCancelled,
+              Constant.driverRejected
+              // REMOVED "Order Completed" - new order requests should be visible
+            ])
+            .where('id',
+                isEqualTo: driverModel.value.orderRequestData!.first.toString())
+            .where('driverID', isEqualTo: driverModel.value.id)
+            .snapshots()
+            .listen(
+              (event) async {
+                if (event.docs.isNotEmpty) {
+                  currentOrder.value =
+                      OrderModel.fromJson(event.docs.first.data());
+                  if (driverModel.value.orderRequestData
+                          ?.contains(currentOrder.value.id) ==
+                      true) {
+                    changeData();
+                  } else {
+                    currentOrder.value = OrderModel();
+                    update();
+                  }
+                } else {
+                  currentOrder.value = OrderModel();
+                  await AudioPlayerService.playSound(false);
+                }
+              },
+            );
+      }
+    } else if (orderModel.value.id != null) {
       FireStoreUtils.fireStore
           .collection(CollectionName.restaurantOrders)
-          .where('status',
-              whereNotIn: [
-                Constant.orderCancelled, 
-                Constant.driverRejected,
-                "Order Completed"  // Keep this only for in-progress orders
-              ])
-          .where('id',
-              isEqualTo:
-                  driverModel.value.inProgressOrderID!.first.toString()).where('driverID',
-          isEqualTo: driverModel.value.id)
+          .where('status', whereNotIn: [
+            Constant.orderCancelled,
+            Constant.driverRejected
+            // REMOVED "Order Completed" - general order tracking should see all statuses
+          ])
+          .where('id', isEqualTo: orderModel.value.id.toString())
+          .where('driverID', isEqualTo: driverModel.value.id)
           .snapshots()
           .listen(
             (event) async {
@@ -204,66 +298,10 @@ class HomeController extends GetxController {
               }
             },
           );
-    } else if (driverModel.value.orderRequestData != null &&
-        driverModel.value.orderRequestData!.isNotEmpty) {
-      FireStoreUtils.fireStore
-          .collection(CollectionName.restaurantOrders)
-          .where('status',
-              whereNotIn: [
-                Constant.orderCancelled, 
-                Constant.driverRejected
-                // REMOVED "Order Completed" - new order requests should be visible
-              ])
-          .where('id',
-              isEqualTo: driverModel.value.orderRequestData!.first.toString()).where('driverID',
-          isEqualTo: driverModel.value.id)
-          .snapshots()
-          .listen(
-            (event) async {
-              if (event.docs.isNotEmpty) {
-                currentOrder.value =
-                    OrderModel.fromJson(event.docs.first.data());
-                if (driverModel.value.orderRequestData
-                        ?.contains(currentOrder.value.id) ==
-                    true) {
-                  changeData();
-                } else {
-                  currentOrder.value = OrderModel();
-                  update();
-                }
-              } else {
-                currentOrder.value = OrderModel();
-                await AudioPlayerService.playSound(false);
-              }
-            },
-          );
     }
-  } else if (orderModel.value.id != null) {
-    FireStoreUtils.fireStore
-        .collection(CollectionName.restaurantOrders)
-        .where('status',
-            whereNotIn: [
-              Constant.orderCancelled, 
-              Constant.driverRejected
-              // REMOVED "Order Completed" - general order tracking should see all statuses
-            ])
-        .where('id', isEqualTo: orderModel.value.id.toString()).where('driverID',
-        isEqualTo: driverModel.value.id)
-        .snapshots()
-        .listen(
-          (event) async {
-            if (event.docs.isNotEmpty) {
-              currentOrder.value =
-                  OrderModel.fromJson(event.docs.first.data());
-              changeData();
-            } else {
-              currentOrder.value = OrderModel();
-              await AudioPlayerService.playSound(false);
-            }
-          },
-        );
   }
-} RxBool isChange = false.obs;
+
+  RxBool isChange = false.obs;
 
   changeData() async {
     print(
@@ -628,283 +666,278 @@ class HomeController extends GetxController {
       print("Failed to get route: ${response.body}");
     }
   }
-void checkForStaleOrders() async {
-  print('🔍 Checking stale orders...');
 
-  final inProgressIds = driverModel.value.inProgressOrderID;
+  void checkForStaleOrders() async {
+    print('🔍 Checking stale orders...');
 
-  // If null or empty, clear any leftover state
-  if (inProgressIds == null || inProgressIds.isEmpty) {
-    print('✅ No in-progress orders found.');
-    currentOrder.value = OrderModel(); // 
-    update();
-    return;
-  }
+    final inProgressIds = driverModel.value.inProgressOrderID;
 
-  List<String> validOrderIds = [];
-  OrderModel? activeOrder;
-
-  for (String orderId in inProgressIds) {
-    final order = await FireStoreUtils.getOrderById(orderId);
-
-    if (order == null) continue;
-
-    print('🧾 Order ${order.id} - Status: ${order.status}');
-
-    if (order.status != Constant.orderCompleted) {
-      validOrderIds.add(order.id!);
-      if (activeOrder == null) {
-        activeOrder = order; 
-      }
-    } else {
-      print(' Removing completed order: ${order.id}');
+    // If null or empty, clear any leftover state
+    if (inProgressIds == null || inProgressIds.isEmpty) {
+      print('✅ No in-progress orders found.');
+      currentOrder.value = OrderModel(); //
+      update();
+      return;
     }
+
+    List<String> validOrderIds = [];
+    OrderModel? activeOrder;
+
+    for (String orderId in inProgressIds) {
+      final order = await FireStoreUtils.getOrderById(orderId);
+
+      if (order == null) continue;
+
+      print('🧾 Order ${order.id} - Status: ${order.status}');
+
+      if (order.status != Constant.orderCompleted) {
+        validOrderIds.add(order.id!);
+        activeOrder ??= order;
+      } else {
+        print(' Removing completed order: ${order.id}');
+      }
+    }
+
+    // Save cleaned-up list
+    driverModel.value.inProgressOrderID = validOrderIds;
+    await FireStoreUtils.updateUser(driverModel.value);
+
+    if (activeOrder != null) {
+      currentOrder.value = activeOrder;
+      print(' Active order set: ${activeOrder.id}');
+    } else {
+      currentOrder.value = OrderModel();
+      print('No valid orders found. Cleared currentOrder.');
+    }
+
+    update();
   }
-
-  // Save cleaned-up list
-  driverModel.value.inProgressOrderID = validOrderIds;
-  await FireStoreUtils.updateUser(driverModel.value);
-
-  if (activeOrder != null) {
-    currentOrder.value = activeOrder;
-    print(' Active order set: ${activeOrder.id}');
-  } else {
-    currentOrder.value = OrderModel(); 
-    print('No valid orders found. Cleared currentOrder.');
-  }
-
-  update();
-}
-
 
 // Method to calculate and draw route
-Future<void> calculateAndDrawRoute() async {
-  if (currentOrder.value.id == null) return;
-  
-  LatLng? driverLocation;
-  LatLng? destinationLocation;
-  
-  // Get driver's current location
-  if (driverModel.value.location != null) {
-    driverLocation = LatLng(
-      driverModel.value.location!.latitude ?? 0.0,
-      driverModel.value.location!.longitude ?? 0.0,
-    );
-  }
-  
-  // Determine destination based on order status
-  if (currentOrder.value.status == Constant.orderShipped || 
-      currentOrder.value.status == Constant.driverAccepted) {
-    // Route to restaurant
-    destinationLocation = LatLng(
-      currentOrder.value.vendor!.latitude ?? 0.0,
-      currentOrder.value.vendor!.longitude ?? 0.0,
-    );
-  } else if (currentOrder.value.status == Constant.orderInTransit) {
-    // Route to customer
-    destinationLocation = LatLng(
-      currentOrder.value.address!.location!.latitude ?? 0.0,
-      currentOrder.value.address!.location!.longitude ?? 0.0,
-    );
-  }
-  
-  if (driverLocation != null && destinationLocation != null) {
-    if (Constant.selectedMapType == "osm") {
-      await calculateOSMRoute(driverLocation, destinationLocation);
-    } else {
+  Future<void> calculateAndDrawRoute() async {
+    if (currentOrder.value.id == null) return;
+
+    LatLng? driverLocation;
+    LatLng? destinationLocation;
+
+    // Get driver's current location
+    if (driverModel.value.location != null) {
+      driverLocation = LatLng(
+        driverModel.value.location!.latitude ?? 0.0,
+        driverModel.value.location!.longitude ?? 0.0,
+      );
+    }
+
+    // Determine destination based on order status
+    if (currentOrder.value.status == Constant.orderShipped ||
+        currentOrder.value.status == Constant.driverAccepted) {
+      // Route to restaurant
+      destinationLocation = LatLng(
+        currentOrder.value.vendor!.latitude ?? 0.0,
+        currentOrder.value.vendor!.longitude ?? 0.0,
+      );
+    } else if (currentOrder.value.status == Constant.orderInTransit) {
+      // Route to customer
+      destinationLocation = LatLng(
+        currentOrder.value.address!.location!.latitude ?? 0.0,
+        currentOrder.value.address!.location!.longitude ?? 0.0,
+      );
+    }
+
+    if (driverLocation != null && destinationLocation != null) {
+      if (Constant.selectedMapType == "osm") {
+        await calculateOSMRoute(driverLocation, destinationLocation);
+      } else {}
     }
   }
-}
 
 // For Google Maps - Calculate route using Google Directions API
 
 // For OSM - Calculate route using OSRM
-Future<void> calculateOSMRoute(LatLng origin, LatLng destination) async {
-  try {
-    final String url = 'https://router.project-osrm.org/route/v1/driving/'
-        '${origin.longitude},${origin.latitude};'
-        '${destination.longitude},${destination.latitude}'
-        '?overview=full&geometries=geojson';
-    
-    final response = await http.get(Uri.parse(url));
-    
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      
-      if (data['routes'].isNotEmpty) {
-        final route = data['routes'][0];
-        final coordinates = route['geometry']['coordinates'] as List;
-        
-        // Convert to LatLng points
-        routePoints.clear();
-        for (var coord in coordinates) {
-          routePoints.add(location.LatLng(coord[1], coord[0]));
+  Future<void> calculateOSMRoute(LatLng origin, LatLng destination) async {
+    try {
+      final String url = 'https://router.project-osrm.org/route/v1/driving/'
+          '${origin.longitude},${origin.latitude};'
+          '${destination.longitude},${destination.latitude}'
+          '?overview=full&geometries=geojson';
+
+      final response = await http.get(Uri.parse(url));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+
+        if (data['routes'].isNotEmpty) {
+          final route = data['routes'][0];
+          final coordinates = route['geometry']['coordinates'] as List;
+
+          // Convert to LatLng points
+          routePoints.clear();
+          for (var coord in coordinates) {
+            routePoints.add(location.LatLng(coord[1], coord[0]));
+          }
+
+          update();
         }
-        
-        update();
       }
+    } catch (e) {
+      print('Error calculating OSM route: $e');
     }
-  } catch (e) {
-    print('Error calculating OSM route: $e');
   }
-}
 
 // Polyline decoder for Google Maps
-List<LatLng> decodePolyline(String encoded) {
-  List<LatLng> polylineCoordinates = [];
-  int index = 0, len = encoded.length;
-  int lat = 0, lng = 0;
+  List<LatLng> decodePolyline(String encoded) {
+    List<LatLng> polylineCoordinates = [];
+    int index = 0, len = encoded.length;
+    int lat = 0, lng = 0;
 
-  while (index < len) {
-    int b, shift = 0, result = 0;
-    do {
-      b = encoded.codeUnitAt(index++) - 63;
-      result |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
-    int dlat = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
-    lat += dlat;
+    while (index < len) {
+      int b, shift = 0, result = 0;
+      do {
+        b = encoded.codeUnitAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      int dlat = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+      lat += dlat;
 
-    shift = 0;
-    result = 0;
-    do {
-      b = encoded.codeUnitAt(index++) - 63;
-      result |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
-    int dlng = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
-    lng += dlng;
+      shift = 0;
+      result = 0;
+      do {
+        b = encoded.codeUnitAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      int dlng = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+      lng += dlng;
 
-    LatLng p = LatLng((lat / 1E5), (lng / 1E5));
-    polylineCoordinates.add(p);
+      LatLng p = LatLng((lat / 1E5), (lng / 1E5));
+      polylineCoordinates.add(p);
+    }
+    return polylineCoordinates;
   }
-  return polylineCoordinates;
-}
 
 // Method to clear map data
-void clearMapp() {
-  polyLines.clear();
-  markers.clear();
-  routePoints.clear();
-  osmMarkers.clear();
-  update();
-}
+  void clearMapp() {
+    polyLines.clear();
+    markers.clear();
+    routePoints.clear();
+    osmMarkers.clear();
+    update();
+  }
 
 // Method to update markers based on current order
-void updateMapMarkers() {
-  if (currentOrder.value.id == null) return;
-  
-  if (Constant.selectedMapType == "osm") {
-    updateOSMMarkers();
-  } else {
-    updateGoogleMapMarkers();
+  void updateMapMarkers() {
+    if (currentOrder.value.id == null) return;
+
+    if (Constant.selectedMapType == "osm") {
+      updateOSMMarkers();
+    } else {
+      updateGoogleMapMarkers();
+    }
   }
-}
 
 // Update OSM markers
-void updateOSMMarkers() {
-  osmMarkers.clear();
-  
-  // Driver marker
-  if (driverModel.value.location != null) {
-    osmMarkers.add(
-      flutterMap.Marker(
-        point: location.LatLng(
+  void updateOSMMarkers() {
+    osmMarkers.clear();
+
+    // Driver marker
+    if (driverModel.value.location != null) {
+      osmMarkers.add(
+        flutterMap.Marker(
+            point: location.LatLng(
+              driverModel.value.location!.latitude!,
+              driverModel.value.location!.longitude!,
+            ),
+            child: Image.asset('assets/images/food_delivery.png')),
+      );
+    }
+
+    // Destination marker based on order status
+    if (currentOrder.value.status == Constant.orderShipped ||
+        currentOrder.value.status == Constant.driverAccepted) {
+      // Restaurant marker
+      osmMarkers.add(
+        flutterMap.Marker(
+          point: location.LatLng(
+            currentOrder.value.vendor!.latitude!,
+            currentOrder.value.vendor!.longitude!,
+          ),
+          child: const Icon(
+            Icons.restaurant,
+            color: AppThemeData.success400,
+            size: 30,
+          ),
+        ),
+      );
+    } else if (currentOrder.value.status == Constant.orderInTransit) {
+      // Customer marker
+      osmMarkers.add(
+        flutterMap.Marker(
+          point: location.LatLng(
+            currentOrder.value.address!.location!.latitude!,
+            currentOrder.value.address!.location!.longitude!,
+          ),
+          child: const Icon(
+            Icons.location_pin,
+            color: AppThemeData.danger300,
+            size: 30,
+          ),
+        ),
+      );
+    }
+  }
+
+// Update Google Map markers
+  void updateGoogleMapMarkers() {
+    markers.clear();
+
+    // Driver marker
+    if (driverModel.value.location != null) {
+      markers['driver'] = Marker(
+        markerId: const MarkerId('driver'),
+        position: LatLng(
           driverModel.value.location!.latitude!,
           driverModel.value.location!.longitude!,
         ),
-        child:Image.asset('assets/images/food_delivery.png')
-      ),
-    );
-  }
-  
-  // Destination marker based on order status
-  if (currentOrder.value.status == Constant.orderShipped || 
-      currentOrder.value.status == Constant.driverAccepted) {
-    // Restaurant marker
-    osmMarkers.add(
-      flutterMap.Marker(
-        point: location.LatLng(
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+        infoWindow: const InfoWindow(title: 'Driver Location'),
+      );
+    }
+
+    // Destination marker based on order status
+    if (currentOrder.value.status == Constant.orderShipped ||
+        currentOrder.value.status == Constant.driverAccepted) {
+      // Restaurant marker
+      markers['restaurant'] = Marker(
+        markerId: const MarkerId('restaurant'),
+        position: LatLng(
           currentOrder.value.vendor!.latitude!,
           currentOrder.value.vendor!.longitude!,
         ),
-        child: const Icon(
-          Icons.restaurant,
-          color: AppThemeData.success400,
-          size: 30,
-        ),
-      ),
-    );
-  } else if (currentOrder.value.status == Constant.orderInTransit) {
-    // Customer marker
-    osmMarkers.add(
-      flutterMap.Marker(
-        point: location.LatLng(
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+        infoWindow: InfoWindow(title: currentOrder.value.vendor!.title),
+      );
+    } else if (currentOrder.value.status == Constant.orderInTransit) {
+      // Customer marker
+      markers['customer'] = Marker(
+        markerId: const MarkerId('customer'),
+        position: LatLng(
           currentOrder.value.address!.location!.latitude!,
           currentOrder.value.address!.location!.longitude!,
         ),
-        child: const Icon(
-          Icons.location_pin,
-          color: AppThemeData.danger300,
-          size: 30,
-        ),
-      ),
-    );
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+        infoWindow: const InfoWindow(title: 'Customer Location'),
+      );
+    }
   }
-}
-
-// Update Google Map markers
-void updateGoogleMapMarkers() {
-  markers.clear();
-  
-  // Driver marker
-  if (driverModel.value.location != null) {
-    markers['driver'] = Marker(
-      markerId: const MarkerId('driver'),
-      position: LatLng(
-        driverModel.value.location!.latitude!,
-        driverModel.value.location!.longitude!,
-      ),
-      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-      infoWindow: const InfoWindow(title: 'Driver Location'),
-    );
-  }
-  
-  // Destination marker based on order status
-  if (currentOrder.value.status == Constant.orderShipped || 
-      currentOrder.value.status == Constant.driverAccepted) {
-    // Restaurant marker
-    markers['restaurant'] = Marker(
-      markerId: const MarkerId('restaurant'),
-      position: LatLng(
-        currentOrder.value.vendor!.latitude!,
-        currentOrder.value.vendor!.longitude!,
-      ),
-      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-      infoWindow: InfoWindow(title: currentOrder.value.vendor!.title),
-    );
-  } else if (currentOrder.value.status == Constant.orderInTransit) {
-    // Customer marker
-    markers['customer'] = Marker(
-      markerId: const MarkerId('customer'),
-      position: LatLng(
-        currentOrder.value.address!.location!.latitude!,
-        currentOrder.value.address!.location!.longitude!,
-      ),
-      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-      infoWindow: const InfoWindow(title: 'Customer Location'),
-    );
-  }
-}
 
 // Call this method when order status changes or when initializing
-void initializeMapForCurrentOrder() {
-  if (currentOrder.value.id != null) {
-    updateMapMarkers();
-    calculateAndDrawRoute();
+  void initializeMapForCurrentOrder() {
+    if (currentOrder.value.id != null) {
+      updateMapMarkers();
+      calculateAndDrawRoute();
+    }
   }
-}
-
 }
 
 /*******************************************************************************************
@@ -924,4 +957,3 @@ void initializeMapForCurrentOrder() {
 * Company: Movenetics Digital
 * Author: Aman Bhandari 
 *******************************************************************************************/
-
